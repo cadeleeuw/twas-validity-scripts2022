@@ -1,0 +1,90 @@
+BLOCK=$1        # data block to analyse
+N_PHENO=$2      # outcome phenotype sample size
+
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+
+module load 2020
+module load R/4.0.2-intel-2020a
+module load PLINK/1.9b_6.17-x86_64
+
+ID=1
+N_EXPR=1000
+N_REF=1000
+K=1000
+
+ROOT=/home/cdeleeuw/project/development/eqtl_paper/revision	# root directory
+SIM_DIR=$ROOT/simulations/analyse/fusion			# FUSION simulation directory (contains additional helper scripts
+INPUT_DIR=$ROOT/simulations/generate/stats			# directory with simulated data
+WEIGHT_DIR=$SIM_DIR/weights					# directory with weights computed by fusion_weights.bs script
+PROG_DIR=$ROOT/prog/fusion					# FUSION script directory, also contains GCTA and GEMMA executables
+DATA_DIR=$ROOT/data/ukb/blocks/block$BLOCK			# directory with genotype data
+OUTPUT_ROOT=$SIM_DIR/output
+
+
+# create arrays with all available expression and outcome conditions, given settings
+CONDITIONS_EXPR=($(for DIR in $(dir -d $INPUT_DIR/expr_p${N_PHENO}_*N${N_EXPR}_K${K}_*); do basename $DIR; done))
+CONDITIONS_PHENO=($(for DIR in $(dir -d $INPUT_DIR/pheno_*N${N_PHENO}_K${K}_*); do basename $DIR; done))
+
+
+# transfer all needed files to temp directory
+cd "$TMPDIR"
+cp $SIM_DIR/prep_stats.r $SIM_DIR/prep_pos.r .
+cp -r $PROG_DIR/src .
+
+mkdir data input
+cp $INPUT_DIR/tpl/block${BLOCK}.K${K}.stats.tpl input/stats.tpl
+for EXT in bed bim fam; do cp $DATA_DIR/block${BLOCK}_N${N_REF}_K${K}.$EXT data/geno${BLOCK}.$EXT; done
+
+# set up folder structure and input files for each expression condition
+for COND_E in ${CONDITIONS_EXPR[@]}; do
+        WTDIR=input/weights/$COND_E
+        mkdir -p $WTDIR
+
+	cp $WEIGHT_DIR/$COND_E/block${BLOCK}_${COND_E}.*.RDat $WTDIR
+	Rscript prep_pos.r $WTDIR/block${BLOCK}_${COND_E} data/geno${BLOCK}.bim $N_EXPR		# this creates a position file for each iteration
+done
+
+# set up folder structure and input files for each outcome condition
+for COND_P in ${CONDITIONS_PHENO[@]}; do
+	STDIR=input/stats/$COND_P
+	mkdir -p $STDIR
+
+        cp $INPUT_DIR/$COND_P/block${BLOCK}-${ID}_${COND_P}.stats $STDIR/${COND_P}.stats
+        Rscript prep_stats.r $STDIR/${COND_P} input/stats.tpl	# this creates a sumstats file (SNP ID, alleles, and test statistic) for each iteration
+done
+
+
+# run analysis for each combination of expression and outcome conditions
+for I in {1..16}; do
+	(
+	for COND_E in ${CONDITIONS_EXPR[@]}; do
+		for COND_P in ${CONDITIONS_PHENO[@]}; do
+			WTDIR=input/weights/$COND_E
+			STDIR=input/stats/$COND_P
+
+			OUT_COND=K${K}_N${N_EXPR}-${N_PHENO}_${COND_E##*_}-${COND_P##*_h}
+			OUTBASE=$OUTPUT_ROOT/$OUT_COND
+	                mkdir -p $OUTBASE
+
+			for MODEL in enet lasso blup bslmm; do
+				OUTDIR=$OUTBASE/$MODEL
+				mkdir -p $OUTDIR
+				for (( J=$I; J <= 100; J += 16 )); do
+					Rscript src/FUSION.assoc_test.R \
+						--sumstats $STDIR/${COND_P}.iter${J}.stats \
+						--weights $WTDIR/block${BLOCK}_${COND_E}.iter${J}.pos \
+						--weights_dir . \
+						--ref_ld_chr data/geno \
+						--chr $BLOCK \
+						--force_model $MODEL \
+						--out $OUTDIR/block${BLOCK}_${OUT_COND}.${MODEL}.iter$J
+				done
+			done
+		done
+	done
+	) &
+done
+wait
+
+

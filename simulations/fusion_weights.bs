@@ -1,0 +1,83 @@
+BLOCK=$1	# data block to analyse
+N_PHENO=$2	# outcome phenotype sample size
+
+
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+
+module load 2020
+module load R/4.0.2-intel-2020a
+module load PLINK/1.9b_6.17-x86_64
+
+ID=1		# data ID (ID = 1 corresponds to first 1,000 iterations for each condition)
+N_EXPR=1000	# sample size for gene expression
+K=1000		# number of SNPs in the data block
+R2_SCALE=100000	# scaling constant to translate scaled h2 values in condition specifiers back to r2 values
+
+ROOT=...					# root directory
+SIM_DIR=$ROOT/simulations/analyse/fusion	# FUSION simulation directory (contains additional helper scripts
+INPUT_DIR=$ROOT/simulations/generate/stats	# directory with simulated data
+PROG_DIR=$ROOT/prog/fusion			# FUSION script directory, also contains GCTA and GEMMA executables 
+DATA_DIR=$ROOT/data/ukb/blocks/block$BLOCK	# directory with genotype data
+OUTPUT_ROOT=$SIM_DIR/weights
+
+# create array with all available expression conditions, given settings
+CONDITIONS=($(for DIR in $(dir -d $INPUT_DIR/expr_p${N_PHENO}_N${N_EXPR}_K${K}_*); do basename $DIR; done))
+NCOND=${#CONDITIONS[@]} #should be three
+
+# transfer all needed files to temp directory
+cd "$TMPDIR"
+cp $SIM_DIR/prep_pheno.r .
+cp -r $PROG_DIR/src $PROG_DIR/gcta $PROG_DIR/gemma .
+
+mkdir data
+for EXT in bed bim fam; do
+	cp $DATA_DIR/block${BLOCK}_N${N_EXPR}_K${K}.$EXT data/geno.$EXT
+done
+
+mkdir input output
+cp $INPUT_DIR/tpl/block${BLOCK}.N${N_EXPR}.var.tpl input/var.tpl
+
+# set up folder structure and input files for each condition
+for COND in ${CONDITIONS[@]}; do
+        INDIR=input/$COND
+	RESDIR=output/$COND
+	OUTDIR=$OUTPUT_ROOT/$COND
+	mkdir -p $INDIR $RESDIR $OUTDIR
+
+	cp $INPUT_DIR/$COND/block${BLOCK}-${ID}_${COND}.var $INDIR/${COND}.var
+        Rscript prep_pheno.r $COND $INDIR input/var.tpl		# this creates a file with FID/IID and gene expression for each iteration separately
+done
+
+for I in {1..16}; do
+	(
+	for COND in ${CONDITIONS[@]}; do
+		R2=$(echo $COND | awk -F "_h" -v scale=$R2_SCALE '{print $2 / scale}')	# retrieve r2 value used to simulate gene expression
+
+		INDIR=input/$COND
+		RESDIR=output/$COND
+		OUTDIR=$OUTPUT_ROOT/$COND
+
+		for (( J=$I; J <= 100; J += 16 )); do
+			PREFIX=${COND}.iter${J}
+			BLOCK_PREF=block${BLOCK}_$PREFIX
+			OUTPREF=$RESDIR/$BLOCK_PREF
+			if [ ! -e $OUTDIR/${BLOCK_PREF}.wgt.RDat ]; then
+				# cross-validation is disabled, and the r2 is set to the true value used in simulations, to reduce computation time
+				Rscript src/FUSION.compute_weights.R \
+					--bfile data/geno \
+					--pheno $INDIR/${PREFIX}.var \
+					--models blup,bslmm,enet,lasso \
+					--crossval 0 --hsq_set $R2 \
+					--PATH_gcta gcta/gcta64 \
+					--PATH_gemma gemma/gemma-0.98.4-linux-static-AMD64 \
+					--tmp tmp_${COND}_$J \
+					--out $OUTPREF
+				mv ${OUTPREF}.* $OUTDIR
+			fi
+		done
+	done
+	) &
+done
+wait
+

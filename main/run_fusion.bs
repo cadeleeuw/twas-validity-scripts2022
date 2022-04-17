@@ -1,0 +1,27 @@
+PHENO=$1
+CHR=$2
+
+ROOT=...	# root directory for analysis
+
+DATA_DIR=$ROOT/data/fusion	# directory with FUSION model files, and phenotype input files formatted for FUSION (NB: only Elastic Net and LASSO available in model files used)
+REF_DIR=$ROOT/data/ref/by_chr	# directory with 1,000 Genomes reference data, by chromosome
+PROG_DIR=$ROOT/prog/fusion	# directory with FUSION scripts
+
+OUTDIR=$ROOT/output/fusion/$PHENO
+mkdir -p $OUTDIR
+OUTPREF=$OUTDIR/${PHENO}_chr${CHR}
+
+for MODEL in lasso enet; do
+	OUTFILE=${OUTPREF}.${MODEL}.res 
+	LOGFILE=${OUTPREF}.${MODEL}.log
+	if [ ! -e $OUTFILE ]; then 
+		Rscript $PROG_DIR/FUSION.assoc_test.R \
+			--sumstats $DATA_DIR/pheno/${PHENO}_fusion.stats \
+			--weights $DATA_DIR/GTExv8.EUR.Whole_Blood.nofilter.pos \
+			--weights_dir $DATA_DIR \
+			--ref_ld_chr $REF_DIR/g1000_maf005_chr \
+			--chr $CHR \
+			--force_model $MODEL \
+			--out $OUTFILE > $LOGFILE
+	fi
+done
