@@ -1,5 +1,3 @@
-# twas-validity-scripts2022
-
 This repository contains the simulation and analysis scripts for the paper "Reconsidering the validity of transcriptome-wide association studies" ([preprint](https://www.biorxiv.org/content/10.1101/2021.08.15.456414v1)). Content by directory is as follows:
 
 **main:** scripts for real data analysis
