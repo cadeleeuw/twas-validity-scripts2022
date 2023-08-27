@@ -26,3 +26,4 @@ This repository contains the simulation and analysis scripts for the paper "Reco
 	- uses summary statistics for Y
 - fusion (directory): contains three R helper scripts used in fusion_weights.bs and fusion_analysis.bs
 
+**figure data.zip** additional archive with scripts and input data to generate the main text figures
