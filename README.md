@@ -1,4 +1,4 @@
-This repository contains the simulation and analysis scripts for the paper "Reconsidering the validity of transcriptome-wide association studies" ([preprint](https://www.biorxiv.org/content/10.1101/2021.08.15.456414v1)). Content by directory is as follows:
+This repository contains the simulation and analysis scripts for the paper "On the interpretation of transcriptome-wide association studies" ([link](https://journals.plos.org/plosgenetics/article?id=10.1371/journal.pgen.1010921)). Content by directory is as follows:
 
 **main:** scripts for real data analysis
 - run_bivar.r: runs LAVA-rG and LAVA-TWAS
